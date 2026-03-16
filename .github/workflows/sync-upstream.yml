@@ -27,6 +27,11 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
+      - name: Set up deploy key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SYNC_DEPLOY_KEY }}
+
       - name: Fetch upstream
         run: |
           git remote add upstream https://github.com/shipwright-io/build.git
@@ -53,4 +58,6 @@ jobs:
           fi
 
       - name: Push to mirror
-        run: git push origin main
+        run: |
+          git remote set-url origin "git@github.com:${GITHUB_REPOSITORY}.git"
+          git push origin HEAD:main --force-with-lease
