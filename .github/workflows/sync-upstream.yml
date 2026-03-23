@@ -1,0 +1,63 @@
+name: Sync from upstream
+
+on:
+  schedule:
+    - cron: '0 6 * * *'   # daily at 06:00 UTC
+  workflow_dispatch: {}
+
+concurrency:
+  group: sync-upstream-main
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Set up deploy key
+        uses: webfactory/ssh-agent@dc588b651fe13675774614f8e6a936a468676387 # v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SYNC_DEPLOY_KEY }}
+
+      - name: Fetch upstream
+        run: |
+          git remote add upstream https://github.com/shipwright-io/build.git
+          git fetch upstream main
+
+      - name: Rebase onto upstream
+        run: |
+          UPSTREAM_SHA=$(git rev-parse upstream/main)
+          LOCAL_SHA=$(git rev-parse HEAD)
+
+          if [ "$UPSTREAM_SHA" = "$LOCAL_SHA" ]; then
+            echo "Already up to date with upstream ($LOCAL_SHA)"
+            exit 0
+          fi
+
+          echo "Syncing main: $LOCAL_SHA -> $UPSTREAM_SHA"
+
+          if ! git rebase upstream/main; then
+            echo "::error::Rebase conflict syncing 'main' from upstream."
+            echo "::error::Upstream SHA: $UPSTREAM_SHA | Mirror SHA: $LOCAL_SHA"
+            echo "::error::Manual resolution required."
+            git rebase --abort
+            exit 1
+          fi
+
+      - name: Push to mirror
+        run: |
+          git remote set-url origin "git@github.com:${GITHUB_REPOSITORY}.git"
+          git push origin HEAD:main --force-with-lease
